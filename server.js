@@ -45,8 +45,8 @@ app.post('/api/create-checkout-session', async (req, res) => {
           quantity: 1,
         },
       ],
-      success_url: 'http://localhost:3000/payment-success?session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: 'http://localhost:3000/payment-canceled',
+      success_url: 'http://bailore.netlify.app/payment-success?session_id={CHECKOUT_SESSION_ID}',
+      cancel_url: 'http://bailore.netlify.app/payment-canceled',
     });
     res.json({ sessionUrl: session.url }); 
   } catch (err) {
