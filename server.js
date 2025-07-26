@@ -10,28 +10,70 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
 
 const app = express();
 app.use(cors());
-
-const port = 3001;
-
-let raffleTickets = { 123: 0 };
-
-app.use(cors());
 app.use(bodyParser.json());
 
+const port = process.env.PORT || 3001;
+
+
+const raffleTickets = {}; 
+
+
+app.get('/api/current-user', (req, res) => {
+  try {
+    
+    const userId = req.headers['x-user-id'] || req.cookies?.userId;
+    
+    if (!userId) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    return res.json({ id: userId });
+  } catch (error) {
+    console.error('Error in current-user endpoint:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 app.get('/api/raffle-status', (req, res) => {
-  const userId = req.query.userId;
-  const tickets = raffleTickets[userId] || 0;
-  return res.json({ tickets });
+  try {
+    const userId = req.query.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    const tickets = raffleTickets[userId] || 0;
+    return res.json({ tickets });
+  } catch (error) {
+    console.error('Error in raffle-status:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.post('/api/raffle-entry', (req, res) => {
-  const userId = req.body.userId;
-  raffleTickets[userId] = (raffleTickets[userId] || 0) + 1;
-  return res.json({ success: true, tickets: raffleTickets[userId] });
+  try {
+    const userId = req.body.userId;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
+    raffleTickets[userId] = (raffleTickets[userId] || 0) + 1;
+    return res.json({ success: true, tickets: raffleTickets[userId] });
+  } catch (error) {
+    console.error('Error in raffle-entry:', error);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 });
 
 app.post('/api/create-checkout-session', async (req, res) => {
   try {
+    const { userId } = req.body;
+    
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID required' });
+    }
+
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       mode: 'payment',
@@ -39,25 +81,31 @@ app.post('/api/create-checkout-session', async (req, res) => {
         {
           price_data: {
             currency: 'usd',
-            product_data: { name: 'Raffle Ticket' },
+            product_data: { 
+              name: 'Raffle Ticket',
+              metadata: { userId } 
+            },
             unit_amount: 100,
           },
           quantity: 1,
         },
       ],
-      success_url: 'http://localhost:3000/payment-success?session_id={CHECKOUT_SESSION_ID}',
-      cancel_url: 'http://localhost:3000/payment-canceled',
+      success_url: `${process.env.https://bailore.netlify.app}/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.https://bailore.netlify.app}/payment-canceled`,
+      metadata: { userId } 
     });
-    res.json({ sessionUrl: session.url }); 
+    
+    res.json({ sessionUrl: session.url });
   } catch (err) {
-    console.error(err);
+    console.error('Error creating checkout session:', err);
     res.status(500).json({ error: 'Failed to create checkout session' });
   }
 });
+
 app.post(
   '/api/stripe-webhook',
   bodyParser.raw({ type: 'application/json' }),
-  (req, res) => {
+  async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
 
@@ -73,7 +121,14 @@ app.post(
     }
 
     if (event.type === 'checkout.session.completed') {
-      const userId = 123; 
+      const session = event.data.object;
+      const userId = session.metadata.userId;
+
+      if (!userId) {
+        console.error('No user ID found in webhook metadata');
+        return res.status(400).json({ error: 'User ID missing' });
+      }
+
       raffleTickets[userId] = (raffleTickets[userId] || 0) + 1;
       console.log(`✅ Payment received. User ${userId} now has ${raffleTickets[userId]} tickets.`);
     }
